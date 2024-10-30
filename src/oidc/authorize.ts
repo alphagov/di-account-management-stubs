@@ -122,8 +122,10 @@ export const handler = async (
   const remove_at = Math.floor((Date.now() + 24 * 60 * 60 * 1000) / 1000);
 
   try {
-    await writeNonce(code, nonce, scenario, remove_at);
-    await sendSqsMessage(JSON.stringify(newTxmaEvent()), queueUrl);
+    await Promise.all([
+      writeNonce(code, nonce, scenario, remove_at),
+      sendSqsMessage(JSON.stringify(newTxmaEvent()), queueUrl),
+    ]);
 
     return {
       statusCode: 302,
