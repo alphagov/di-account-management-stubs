@@ -9,15 +9,10 @@ import {
   APIGatewayProxyEvent,
   APIGatewayProxyEventQueryStringParameters,
 } from "aws-lambda";
-import {
-  SendMessageCommand,
-  SendMessageRequest,
-  SQSClient,
-} from "@aws-sdk/client-sqs";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 
 import { TxmaEvent } from "../common/models";
 import { userScenarios } from "../scenarios/scenarios";
-import assert from "node:assert/strict";
 
 const dynamoDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { convertClassInstanceToMap: true },
@@ -61,7 +56,7 @@ export const sendSqsMessage = async (
 export const writeNonce = async (
   code: string,
   nonce: string,
-  userId: string = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
+  userId = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
   remove_at: number
 ): Promise<PutCommandOutput> => {
   const tableName = process.env.TABLE_NAME;
