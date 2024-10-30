@@ -19,16 +19,12 @@ import { TxmaEvent } from "../common/models";
 import { userScenarios } from "../scenarios/scenarios";
 import assert from "node:assert/strict";
 
-const marshallOptions = {
-  convertClassInstanceToMap: true,
-};
-const translateConfig = { marshallOptions };
+const dynamoDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { convertClassInstanceToMap: true },
+});
 
-const dynamoClient = new DynamoDBClient({});
-const dynamoDocClient = DynamoDBDocumentClient.from(
-  dynamoClient,
-  translateConfig
-);
+const sqsClient = new SQSClient({ region: process.env.AWS_REGION });
+
 export interface Response {
   statusCode: number;
   headers: {
@@ -49,72 +45,70 @@ const newTxmaEvent = (): TxmaEvent => ({
 
 export const sendSqsMessage = async (
   messageBody: string,
-  queueUrl: string | undefined
+  queueUrl: string
 ): Promise<string | undefined> => {
-  const { AWS_REGION } = process.env;
-  const client = new SQSClient({ region: AWS_REGION });
-  const message: SendMessageRequest = {
-    QueueUrl: queueUrl,
-    MessageBody: messageBody,
-  };
-  const result = await client.send(new SendMessageCommand(message));
+  if (!queueUrl) throw new Error("Queue URL is not defined.");
+
+  const result = await sqsClient.send(
+    new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: messageBody,
+    })
+  );
   return result.MessageId;
 };
 
 export const writeNonce = async (
   code: string,
   nonce: string,
-  userId = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
+  userId: string = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
   remove_at: number
 ): Promise<PutCommandOutput> => {
-  const { TABLE_NAME } = process.env;
+  const tableName = process.env.TABLE_NAME;
+  if (!tableName) throw new Error("DynamoDB Table Name is not defined.");
 
-  const command = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: {
-      code,
-      nonce,
-      userId,
-      remove_at,
-    },
-  });
-  return dynamoDocClient.send(command);
+  return dynamoDocClient.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: { code, nonce, userId, remove_at },
+    })
+  );
 };
 
 export const selectScenarioHandler = async (event: APIGatewayProxyEvent) => {
-  const queryStringParameters: APIGatewayProxyEventQueryStringParameters =
+  const { state, nonce, redirect_uri } =
     event.queryStringParameters as APIGatewayProxyEventQueryStringParameters;
 
-  const { state, nonce, redirect_uri } = queryStringParameters;
-
-  const scenarios = Object.keys(userScenarios)
-    .map((scenario) => {
-      return `<button name="scenario" value="${scenario}">${scenario}</button>`;
-    })
+  const scenariosHtml = Object.keys(userScenarios)
+    .map(
+      (scenario) =>
+        `<button name="scenario" value="${scenario}">${scenario}</button>`
+    )
     .join("<br/>");
-
-  const body = `<html><body>
-      <form method="post" action='/authorize'>
-        <input type="hidden" name="state" value="${state}" />
-        <input type="hidden" name="nonce" value="${nonce}" /> 
-        <input type="hidden" name="redirectUri" value="${redirect_uri}" />
-        <h1>API Simulation Tool</h1>
-        <p>Choose a scenario below instead of logging in. The app will act like you're that user, helping you test its behavior in different situations.</p>
-        ${scenarios}
-      </form>
-    </body></html>`;
 
   return {
     statusCode: 200,
     headers: { "Content-Type": "text/html" },
-    body,
+    body: `
+      <html>
+        <body>
+          <form method="post" action='/authorize'>
+            <input type="hidden" name="state" value="${state}" />
+            <input type="hidden" name="nonce" value="${nonce}" /> 
+            <input type="hidden" name="redirectUri" value="${redirect_uri}" />
+            <h1>API Simulation Tool</h1>
+            <p>Choose a scenario below instead of logging in. The app will act like you're that user, helping you test its behavior in different situations.</p>
+            ${scenariosHtml}
+          </form>
+        </body>
+      </html>`,
   };
 };
 
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<Response> => {
-  assert(event.body, "no body");
+  if (!event.body) throw new Error("Request body is missing.");
 
   const properties = new URLSearchParams(event.body);
   const nonce = properties.get("nonce");
@@ -122,43 +116,32 @@ export const handler = async (
   const redirectUri = properties.get("redirectUri");
   const scenario = properties.get("scenario") || "default";
 
-  assert(nonce, "no nonce");
-  assert(state, "no state");
-  assert(redirectUri, "no redirect url");
+  if (!nonce || !state || !redirectUri)
+    throw new Error("Required parameters are missing in the request body.");
 
-  const { DUMMY_TXMA_QUEUE_URL } = process.env;
+  const queueUrl = process.env.DUMMY_TXMA_QUEUE_URL;
+  if (!queueUrl)
+    throw new Error("TXMA Queue URL environment variable is not set.");
 
   const code = uuid();
-
-  if (
-    typeof DUMMY_TXMA_QUEUE_URL === "undefined" ||
-    typeof nonce === "undefined"
-  ) {
-    throw new Error(
-      "TXMA Queue URL or Frontend URL environemnt variables is null"
-    );
-  }
-
-  const remove_at = Math.floor(
-    (new Date().getTime() + 24 * 60 * 60 * 1000) / 1000
-  );
+  const remove_at = Math.floor((Date.now() + 24 * 60 * 60 * 1000) / 1000);
 
   try {
     await writeNonce(code, nonce, scenario, remove_at);
+    await sendSqsMessage(JSON.stringify(newTxmaEvent()), queueUrl);
 
-    await sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL);
     return {
       statusCode: 302,
       headers: {
         Location: `${redirectUri}?state=${state}&code=${code}`,
       },
     };
-  } catch (err) {
-    console.error(`Error :: ${err}`);
+  } catch (error) {
+    console.error(`Error :: ${error}`);
     return {
       statusCode: 500,
       headers: {
-        Location: "Internal Server Error ",
+        Location: "Internal Server Error",
       },
     };
   }
