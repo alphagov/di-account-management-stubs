@@ -14,7 +14,6 @@ import {
   SendMessageRequest,
   SQSClient,
 } from "@aws-sdk/client-sqs";
-
 import { TxmaEvent } from "../common/models";
 import { userScenarios } from "../scenarios/scenarios";
 import assert from "node:assert/strict";
@@ -23,12 +22,12 @@ const marshallOptions = {
   convertClassInstanceToMap: true,
 };
 const translateConfig = { marshallOptions };
-
 const dynamoClient = new DynamoDBClient({});
 const dynamoDocClient = DynamoDBDocumentClient.from(
   dynamoClient,
   translateConfig
 );
+
 export interface Response {
   statusCode: number;
   headers: {
@@ -68,7 +67,6 @@ export const writeNonce = async (
   remove_at: number
 ): Promise<PutCommandOutput> => {
   const { TABLE_NAME } = process.env;
-
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: {
@@ -84,15 +82,12 @@ export const writeNonce = async (
 export const selectScenarioHandler = async (event: APIGatewayProxyEvent) => {
   const queryStringParameters: APIGatewayProxyEventQueryStringParameters =
     event.queryStringParameters as APIGatewayProxyEventQueryStringParameters;
-
   const { state, nonce, redirect_uri } = queryStringParameters;
-
   const scenarios = Object.keys(userScenarios)
     .map((scenario) => {
       return `<button name="scenario" value="${scenario}">${scenario}</button>`;
     })
     .join("<br/>");
-
   const body = `<html><body>
       <form method="post" action='/authorize'>
         <input type="hidden" name="state" value="${state}" />
@@ -103,7 +98,6 @@ export const selectScenarioHandler = async (event: APIGatewayProxyEvent) => {
         ${scenarios}
       </form>
     </body></html>`;
-
   return {
     statusCode: 200,
     headers: { "Content-Type": "text/html" },
@@ -115,21 +109,16 @@ export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<Response> => {
   assert(event.body, "no body");
-
   const properties = new URLSearchParams(event.body);
   const nonce = properties.get("nonce");
   const state = properties.get("state");
   const redirectUri = properties.get("redirectUri");
   const scenario = properties.get("scenario") || "default";
-
   assert(nonce, "no nonce");
   assert(state, "no state");
   assert(redirectUri, "no redirect url");
-
   const { DUMMY_TXMA_QUEUE_URL } = process.env;
-
   const code = uuid();
-
   if (
     typeof DUMMY_TXMA_QUEUE_URL === "undefined" ||
     typeof nonce === "undefined"
@@ -138,15 +127,16 @@ export const handler = async (
       "TXMA Queue URL or Frontend URL environemnt variables is null"
     );
   }
-
   const remove_at = Math.floor(
     (new Date().getTime() + 24 * 60 * 60 * 1000) / 1000
   );
 
   try {
-    await writeNonce(code, nonce, scenario, remove_at);
+    await Promise.all([
+      writeNonce(code, nonce, scenario, remove_at),
+      sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL),
+    ]);
 
-    await sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL);
     return {
       statusCode: 302,
       headers: {
