@@ -1,10 +1,6 @@
 import { v4 as uuid } from "uuid";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import {
-  DynamoDBDocumentClient,
-  PutCommand,
-  PutCommandOutput,
-} from "@aws-sdk/lib-dynamodb";
+import { PutCommand, PutCommandOutput } from "@aws-sdk/lib-dynamodb";
 import {
   APIGatewayProxyEvent,
   APIGatewayProxyEventQueryStringParameters,
@@ -18,15 +14,9 @@ import { TxmaEvent } from "../common/models";
 import { userScenarios } from "../scenarios/scenarios";
 import assert from "node:assert/strict";
 
-const marshallOptions = {
-  convertClassInstanceToMap: true,
-};
-const translateConfig = { marshallOptions };
 const dynamoClient = new DynamoDBClient({});
-const dynamoDocClient = DynamoDBDocumentClient.from(
-  dynamoClient,
-  translateConfig
-);
+
+const sqsClient = new SQSClient({});
 
 export interface Response {
   statusCode: number;
@@ -47,16 +37,13 @@ const newTxmaEvent = (): TxmaEvent => ({
 });
 
 export const sendSqsMessage = async (
-  messageBody: string,
-  queueUrl: string | undefined
+  messageBody: string
 ): Promise<string | undefined> => {
-  const { AWS_REGION } = process.env;
-  const client = new SQSClient({ region: AWS_REGION });
   const message: SendMessageRequest = {
-    QueueUrl: queueUrl,
+    QueueUrl: process.env.DUMMY_TXMA_QUEUE_URL,
     MessageBody: messageBody,
   };
-  const result = await client.send(new SendMessageCommand(message));
+  const result = await sqsClient.send(new SendMessageCommand(message));
   return result.MessageId;
 };
 
@@ -66,9 +53,8 @@ export const writeNonce = async (
   userId = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
   remove_at: number
 ): Promise<PutCommandOutput> => {
-  const { TABLE_NAME } = process.env;
   const command = new PutCommand({
-    TableName: TABLE_NAME,
+    TableName: process.env.TABLE_NAME,
     Item: {
       code,
       nonce,
@@ -76,7 +62,7 @@ export const writeNonce = async (
       remove_at,
     },
   });
-  return dynamoDocClient.send(command);
+  return dynamoClient.send(command);
 };
 
 export const selectScenarioHandler = async (event: APIGatewayProxyEvent) => {
@@ -114,27 +100,18 @@ export const handler = async (
   const state = properties.get("state");
   const redirectUri = properties.get("redirectUri");
   const scenario = properties.get("scenario") || "default";
+
   assert(nonce, "no nonce");
   assert(state, "no state");
   assert(redirectUri, "no redirect url");
-  const { DUMMY_TXMA_QUEUE_URL } = process.env;
+
   const code = uuid();
-  if (
-    typeof DUMMY_TXMA_QUEUE_URL === "undefined" ||
-    typeof nonce === "undefined"
-  ) {
-    throw new Error(
-      "TXMA Queue URL or Frontend URL environemnt variables is null"
-    );
-  }
-  const remove_at = Math.floor(
-    (new Date().getTime() + 24 * 60 * 60 * 1000) / 1000
-  );
+  const remove_at = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
 
   try {
     await Promise.all([
       writeNonce(code, nonce, scenario, remove_at),
-      sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL),
+      sendSqsMessage(JSON.stringify(newTxmaEvent())),
     ]);
 
     return {
@@ -144,11 +121,11 @@ export const handler = async (
       },
     };
   } catch (err) {
-    console.error(`Error :: ${err}`);
+    console.error(`Error: ${err}`);
     return {
       statusCode: 500,
       headers: {
-        Location: "Internal Server Error ",
+        Location: "Internal Server Error",
       },
     };
   }
