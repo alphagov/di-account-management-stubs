@@ -55,7 +55,6 @@ export const sendSqsMessage = async (
   messageBody: string,
   queueUrl: string | undefined
 ) => {
-  console.time("6::Authorize sqs");
   const message: SendMessageRequest = {
     QueueUrl: queueUrl,
     MessageBody: messageBody,
@@ -63,7 +62,6 @@ export const sendSqsMessage = async (
   sqsClient.send(new SendMessageCommand(message)).catch((err) => {
     console.error("Error sending SQS message:", err);
   });
-  console.timeEnd("6::Authorize sqs");
 };
 
 export const writeNonce = async (
@@ -72,7 +70,6 @@ export const writeNonce = async (
   userId = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
   remove_at: number
 ): Promise<PutCommandOutput> => {
-  console.time("5::Authorize writenonce");
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: {
@@ -82,7 +79,6 @@ export const writeNonce = async (
       remove_at,
     },
   });
-  console.timeEnd("5::Authorize writenonce");
   return dynamoDocClient.send(command);
 };
 
@@ -155,8 +151,15 @@ export const handler = async (
 
   try {
     console.time("4::Authorize promise");
+
+    console.timeEnd("5::Authorize sqs");
     sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL);
+    console.timeEnd("5::Authorize sqs");
+
+    console.time("6::Authorize writenonce");
     await writeNonce(code, nonce, scenario, remove_at);
+    console.time("6::Authorize writenonce");
+
     console.timeEnd("4::Authorize promise");
 
     console.timeEnd("1::Authorize Full");
