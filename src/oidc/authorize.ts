@@ -55,11 +55,13 @@ export const sendSqsMessage = async (
   messageBody: string,
   queueUrl: string | undefined
 ): Promise<string | undefined> => {
+  console.time("6::Authorize sqs");
   const message: SendMessageRequest = {
     QueueUrl: queueUrl,
     MessageBody: messageBody,
   };
   const result = await sqsClient.send(new SendMessageCommand(message));
+  console.timeEnd("6::Authorize sqs");
   return result.MessageId;
 };
 
@@ -69,6 +71,7 @@ export const writeNonce = async (
   userId = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
   remove_at: number
 ): Promise<PutCommandOutput> => {
+  console.time("5::Authorize writenonce");
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: {
@@ -78,6 +81,7 @@ export const writeNonce = async (
       remove_at,
     },
   });
+  console.timeEnd("5::Authorize writenonce");
   return dynamoDocClient.send(command);
 };
 
@@ -114,8 +118,10 @@ export const selectScenarioHandler = async (event: APIGatewayProxyEvent) => {
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<Response> => {
+  console.time("1::Authorize Full");
   assert(event.body, "no body");
 
+  console.time("2::Authorize Const");
   const properties = new URLSearchParams(event.body);
   const nonce = properties.get("nonce");
   const state = properties.get("state");
@@ -139,16 +145,22 @@ export const handler = async (
     );
   }
 
+  console.timeEnd("2::Authorize Const");
+  console.time("3::Authorize remove_at");
   const remove_at = Math.floor(
     (new Date().getTime() + 24 * 60 * 60 * 1000) / 1000
   );
+  console.timeEnd("3::Authorize remove_at");
 
   try {
+    console.time("4::Authorize promise");
     await Promise.all([
       writeNonce(code, nonce, scenario, remove_at),
       sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL),
     ]);
+    console.timeEnd("4::Authorize promise");
 
+    console.timeEnd("1::Authorize Full");
     return {
       statusCode: 302,
       headers: {
