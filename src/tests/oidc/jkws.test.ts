@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.test" });
 import { Response, handler } from "../../oidc/jwks";
 
 describe("handler", () => {

@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.test" });
 import { handler, Response } from "../../oidc/configuration";
 
 describe("handler", () => {

@@ -17,6 +17,8 @@ const dynamoDocClient = DynamoDBDocumentClient.from(
   translateConfig
 );
 
+const { TABLE_NAME } = process.env;
+
 const parseJwt = (
   token: string
 ): {
@@ -28,7 +30,6 @@ const parseJwt = (
 export const getUserIdFromEvent = async (
   event: APIGatewayProxyEvent | APIGatewayProxyEventV2
 ): Promise<string> => {
-  const { TABLE_NAME } = process.env;
   const authHeader =
     event?.headers?.Authorization || event?.headers?.authorization;
   assert(TABLE_NAME, "TABLE_NAME environment variable not set");

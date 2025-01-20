@@ -29,6 +29,10 @@ const dynamoDocClient = DynamoDBDocumentClient.from(
   dynamoClient,
   translateConfig
 );
+
+const { AWS_REGION, TABLE_NAME } = process.env;
+const sqsClient = new SQSClient({ region: AWS_REGION });
+
 export interface Response {
   statusCode: number;
   headers: {
@@ -51,13 +55,11 @@ export const sendSqsMessage = async (
   messageBody: string,
   queueUrl: string | undefined
 ): Promise<string | undefined> => {
-  const { AWS_REGION } = process.env;
-  const client = new SQSClient({ region: AWS_REGION });
   const message: SendMessageRequest = {
     QueueUrl: queueUrl,
     MessageBody: messageBody,
   };
-  const result = await client.send(new SendMessageCommand(message));
+  const result = await sqsClient.send(new SendMessageCommand(message));
   return result.MessageId;
 };
 
@@ -67,8 +69,6 @@ export const writeNonce = async (
   userId = "F5CE808F-75AB-4ECD-BBFC-FF9DBF5330FA",
   remove_at: number
 ): Promise<PutCommandOutput> => {
-  const { TABLE_NAME } = process.env;
-
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: {
@@ -144,9 +144,11 @@ export const handler = async (
   );
 
   try {
-    await writeNonce(code, nonce, scenario, remove_at);
+    await Promise.all([
+      writeNonce(code, nonce, scenario, remove_at),
+      sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL),
+    ]);
 
-    await sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL);
     return {
       statusCode: 302,
       headers: {
