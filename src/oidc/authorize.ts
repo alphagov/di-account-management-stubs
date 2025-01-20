@@ -54,15 +54,16 @@ const newTxmaEvent = (): TxmaEvent => ({
 export const sendSqsMessage = async (
   messageBody: string,
   queueUrl: string | undefined
-): Promise<string | undefined> => {
+) => {
   console.time("6::Authorize sqs");
   const message: SendMessageRequest = {
     QueueUrl: queueUrl,
     MessageBody: messageBody,
   };
-  const result = await sqsClient.send(new SendMessageCommand(message));
+  sqsClient.send(new SendMessageCommand(message)).catch((err) => {
+    console.error("Error sending SQS message:", err);
+  });
   console.timeEnd("6::Authorize sqs");
-  return result.MessageId;
 };
 
 export const writeNonce = async (
@@ -154,10 +155,8 @@ export const handler = async (
 
   try {
     console.time("4::Authorize promise");
-    await Promise.all([
-      writeNonce(code, nonce, scenario, remove_at),
-      sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL),
-    ]);
+    sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL);
+    await writeNonce(code, nonce, scenario, remove_at);
     console.timeEnd("4::Authorize promise");
 
     console.timeEnd("1::Authorize Full");
