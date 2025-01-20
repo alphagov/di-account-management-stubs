@@ -152,13 +152,13 @@ export const handler = async (
   try {
     console.time("4::Authorize promise");
 
-    console.timeEnd("5::Authorize sqs");
+    console.time("5::Authorize sqs");
     sendSqsMessage(JSON.stringify(newTxmaEvent()), DUMMY_TXMA_QUEUE_URL);
     console.timeEnd("5::Authorize sqs");
 
     console.time("6::Authorize writenonce");
     await writeNonce(code, nonce, scenario, remove_at);
-    console.time("6::Authorize writenonce");
+    console.timeEnd("6::Authorize writenonce");
 
     console.timeEnd("4::Authorize promise");
 
